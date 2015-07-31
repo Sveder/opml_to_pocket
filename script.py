@@ -18,9 +18,8 @@ import opml, feedparser, jsonpickle, timeouted_pocket
 from colorama import init, Fore, Back, Style
 init()
 
-import sqlite3, calendar, time, re, sys, signal
+import sqlite3, calendar, time, re, sys, signal, os
 import config
-
 
 
 def get_timestamp( utc_date ):
@@ -28,9 +27,11 @@ def get_timestamp( utc_date ):
    timestamp = calendar.timegm(utc_date)
    return timestamp
 
+
 def parse_outline( o ):
    "Parses an OPML outline element and pushes the RSS feeds to Pocket"
    global sql_feeds_count, sql_new_count, json_failed_items, json_failed_feeds, sql_status_string
+
    if ( len(o) == 0 and o.xmlUrl ): # Element is a single RSS feed
       f = None
       try:
@@ -40,6 +41,7 @@ def parse_outline( o ):
             print(Fore.CYAN + Style.BRIGHT + "[INFO] Processing feed: " + Style.RESET_ALL + f.feed.title + Style.DIM + " [" + o.xmlUrl + "]" + Style.RESET_ALL)
          else:
             print(Fore.CYAN + Style.BRIGHT + "[INFO] Processing feed: " + Style.RESET_ALL + Style.DIM + o.xmlUrl + Style.RESET_ALL)
+
          for i in f.entries:
             try:
                latest_timestamp = 0
@@ -49,10 +51,13 @@ def parse_outline( o ):
                   latest_timestamp = get_timestamp(i.published_parsed)
                if (hasattr(i, "updated_parsed")):
                   latest_timestamp = get_timestamp(i.updated_parsed)
+
                if (latest_timestamp == 0):
                   raise Exception("No timestamp supplied by feed.")
+
                if ( latest_timestamp > config.min_time and latest_timestamp > last_check ): # Added since last scan
                   print(Fore.CYAN + Style.BRIGHT + "[INFO] Submitting item to pocket: " + Style.RESET_ALL + i.title + Style.DIM + " [" + i.link + "]" + Style.RESET_ALL);
+
                   try:
                      p.add(i.link, title=i.title, time=latest_timestamp)
                      sql_new_count += 1
@@ -76,13 +81,16 @@ def parse_outline( o ):
                      print("  -> " + str(sys.exc_info()[1]) + Style.RESET_ALL)
                      sql_status_string = "done with errors"
                      json_failed_items += jsonpickle.encode(i, unpicklable=False, make_refs=False) + ","
+
             except KeyboardInterrupt:
                print(Fore.CYAN + Style.BRIGHT + "[INFO] Interrupted by user." + Style.RESET_ALL)
                sql_status_string = "interrupted"
                write_database()
                exit(130)
+
             except SystemExit:
                raise
+
             except:
                if hasattr(i, "title"):
                   print(Fore.YELLOW + Style.BRIGHT + "[WARNING] Invalid element: " + Style.RESET_ALL + Style.DIM + i.title)
@@ -93,14 +101,18 @@ def parse_outline( o ):
                print("  -> " + str(sys.exc_info()[1]) + Style.RESET_ALL)
                sql_status_string = "done with errors"
                json_failed_items += jsonpickle.encode(i, unpicklable=False, make_refs=False) + ","
+
          sql_feeds_count += 1
+
       except KeyboardInterrupt:
          print(Fore.CYAN + Style.BRIGHT + "[INFO] Interrupted by user." + Style.RESET_ALL)
          sql_status_string = "interrupted"
          write_database()
          exit(130)
+
       except SystemExit:
          raise
+
       except:
          print(Fore.YELLOW + Style.BRIGHT + "[WARNING] Could not process feed: " + Style.RESET_ALL + Style.DIM + o.xmlUrl + Style.RESET_ALL)
          print("  " + Style.DIM + str(sys.exc_info()[0]))
@@ -130,6 +142,7 @@ def write_database():
        print("  " + Style.DIM + str(sys.exc_info()[0]))
        print("  -> " + str(sys.exc_info()[1])  + Style.RESET_ALL)
        exit(2)
+
 sql_scan_start_time = get_timestamp(time.gmtime(time.time()))
 sql_new_count = 0
 sql_feeds_count = 0
@@ -141,6 +154,9 @@ json_failed_items = ""
 db = None
 dbc = None
 try:
+   if not os.path.isfile(config.sqlite_path):
+      raise Exception("Can't find the sqlite file.")
+
    db = sqlite3.connect(config.sqlite_path)
    dbc = db.cursor()
    dbc.execute("CREATE TABLE IF NOT EXISTS log (scan_start_time TIMESTAMP NOT NULL, scan_end_time TIMESTAMP NOT NULL, new_count INT NOT NULL, feeds_count INT NOT NULL, status_string VARCHAR(32) NOT NULL, status_extras MEDIUMTEXT NOT NULL)")
@@ -150,6 +166,9 @@ try:
       last_check = last_check[0]
    else:
       last_check = 0
+
+
+
 except:
    print(Fore.RED + Style.BRIGHT + "[ERROR] Could not connect to SQLite 3 database!" + Style.RESET_ALL)
    print("  " + Style.DIM + str(sys.exc_info()[0]))
@@ -164,6 +183,7 @@ p = timeouted_pocket.TimeoutedPocket(config.pocket_consumer_key, config.pocket_a
 # Parse OPML file
 try:
    outline = opml.parse(config.opml_path)
+
 except:
    print(Fore.RED + Style.BRIGHT + "[ERROR] Could not parse OPML file!" + Style.RESET_ALL)
    print("  " + Style.DIM + str(sys.exc_info()[0]))
